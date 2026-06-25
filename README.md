@@ -92,7 +92,3 @@ streamlit run streamlit_app/home.py
 - [ ] Swap hardcoded prompts for a config-driven prompt versioning setup
 - [ ] Add a Dockerfile for one-command setup
 - [ ] Support multi-document sessions instead of one collection per upload
-
-## Credits
-
-This project builds on the open-source **[Adaptive-Rag](https://github.com/dhruvsinghal09/Adaptive-Rag)** architecture by Dhruv Singhal as a learning base. I'm extending it with my own changes (see above) as I get more comfortable with the codebase.
