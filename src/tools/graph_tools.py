@@ -32,22 +32,36 @@ def routing_tool(state: State) -> Literal["retriever", "general_llm", "web_searc
         return "web_search"
 
 
-def doc_tool(state: State) -> Literal["rewrite", "generate"]:
+MAX_RETRIES = 2
+
+
+def doc_tool(state: State) -> Literal["rewrite", "generate", "no_relevant_info"]:
     """
     Determine whether the query needs rewriting based on grading score.
+
+    Capped at MAX_RETRIES rewrite attempts. Without this cap, a query
+    whose answer genuinely isn't in the indexed documents would cause
+    grade -> rewrite -> retriever -> grade to loop indefinitely (every
+    iteration making a real LLM call), since nothing in the graph ever
+    forced the score to "yes" or otherwise broke the cycle.
 
     Args:
         state (State): The current state of the graph.
 
     Returns:
-        The next node: "generate" if score is "yes", otherwise "rewrite".
+        The next node: "generate" if score is "yes", "rewrite" if score
+        is "no" and retries remain, otherwise "no_relevant_info".
     """
     score = state["binary_score"]
-    print(f"[doc_tool] Routing based on score: {score}")
+    retry_count = state.get("retry_count") or 0
+    print(f"[doc_tool] Routing based on score: {score}, retry_count: {retry_count}")
+
     if score == "yes":
         return "generate"
-    else:
-        return "rewrite"
+    if retry_count >= MAX_RETRIES:
+        print(f"[doc_tool] Max retries ({MAX_RETRIES}) reached, giving up gracefully.")
+        return "no_relevant_info"
+    return "rewrite"
 
 
 def verify_answer(state: State) -> Literal["__end__", "generate"]:
