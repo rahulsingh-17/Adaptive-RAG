@@ -8,7 +8,7 @@ from langchain_core.prompts import PromptTemplate
 from langgraph.constants import START, END
 from langgraph.graph.state import StateGraph
 
-from src.rag.reAct_agent import agent_executor
+from src.rag.reAct_agent import build_agent_executor
 from src.rag.retriever_setup import get_retriever
 from src.config.settings import Config
 from src.llms.openai import llm
@@ -77,6 +77,7 @@ def retriever_node(state: State):
         dict: Updated messages with tool calls.
     """
     messages = state["latest_query"]
+    agent_executor = build_agent_executor()
     result = agent_executor.invoke({"input": messages})
 
     # Extract tool calls
@@ -133,7 +134,7 @@ def rewrite_query(state: State):
         state (State): State of the question.
 
     Returns:
-        dict: Updated latest_query.
+        dict: Updated latest_query and incremented retry_count.
     """
     query = state["latest_query"]
     rewrite_prompt = PromptTemplate(
@@ -145,7 +146,8 @@ def rewrite_query(state: State):
     print(result)
 
     return {
-        "latest_query": result.content
+        "latest_query": result.content,
+        "retry_count": (state.get("retry_count") or 0) + 1
     }
 
 
@@ -196,6 +198,29 @@ def web_search(state: State):
     }
 
 
+def no_relevant_info(state: State):
+    """
+    Graceful fallback when retries are exhausted and no relevant
+    document content was ever found for the query.
+
+    Args:
+        state (State): The current state of the graph.
+
+    Returns:
+        dict: A user-facing message explaining no relevant info was found.
+    """
+    return {
+        "messages": [{
+            "role": "assistant",
+            "content": (
+                "I couldn't find anything relevant to that question in "
+                "the uploaded documents after a few attempts. Could you "
+                "rephrase it, or upload a document that covers this topic?"
+            )
+        }]
+    }
+
+
 # Build the graph
 graph = StateGraph(State)
 
@@ -206,6 +231,7 @@ graph.add_node("generate", generate)
 graph.add_node("rewrite", rewrite_query)
 graph.add_node("web_search", web_search)
 graph.add_node("general_llm", general_llm)
+graph.add_node("no_relevant_info", no_relevant_info)
 
 graph.add_edge(START, "query_analysis")
 graph.add_edge("web_search", "generate")
@@ -215,6 +241,6 @@ graph.add_conditional_edges("query_analysis", routing_tool)
 graph.add_conditional_edges("grade", doc_tool)
 graph.add_edge("generate", END)
 graph.add_edge("general_llm", END)
+graph.add_edge("no_relevant_info", END)
 
 builder = graph.compile()
-
