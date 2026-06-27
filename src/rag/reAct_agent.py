@@ -13,30 +13,36 @@ from src.rag.retriever_setup import get_retriever
 
 config = Config()
 
-# Initialize tools
-tools = [get_retriever()]
 
-# Load document description if available
-if os.path.exists("description.txt"):
-    with open("description.txt", "r", encoding="utf-8") as f:
-        description = f.read()
-else:
-    description = None
+def build_agent_executor() -> AgentExecutor:
+    """
+    Build a ReAct agent executor wired to the CURRENT retriever tool.
 
-# Create ReAct agent prompt
-prompt = ChatPromptTemplate.from_messages([
-    ("system", config.prompt("system_prompt")),
-    ("human", "{input}"),
-    ("ai", "{agent_scratchpad}")
-])
+    This is rebuilt on every call rather than cached once at import
+    time. Caching it at import time was a bug: get_retriever() returns
+    a tool bound to whatever vectorstore exists *at that moment*, and
+    document_upload.py later swaps in a brand new vectorstore. A
+    module-level agent_executor built before any upload would keep
+    answering from the empty/dummy vectorstore forever, even after
+    real documents were uploaded (see tests/test_retriever_freshness.py).
 
-# Initialize the ReAct agent and executor
-react_agent = create_react_agent(llm, tools, prompt)
-agent_executor = AgentExecutor(
-    agent=react_agent,
-    tools=tools,
-    handle_parsing_errors=True,
-    max_iterations=2,
-    verbose=True,
-    return_intermediate_steps=True
-)
+    Returns:
+        A freshly constructed AgentExecutor using the latest retriever.
+    """
+    tools = [get_retriever()]
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", config.prompt("system_prompt")),
+        ("human", "{input}"),
+        ("ai", "{agent_scratchpad}")
+    ])
+
+    react_agent = create_react_agent(llm, tools, prompt)
+    return AgentExecutor(
+        agent=react_agent,
+        tools=tools,
+        handle_parsing_errors=True,
+        max_iterations=2,
+        verbose=True,
+        return_intermediate_steps=True
+    )
